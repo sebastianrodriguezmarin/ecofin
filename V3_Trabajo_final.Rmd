@@ -1,0 +1,146 @@
+---
+title: Trabajo Final, Estefanía Di Giovani, Andrea Rodríguez, Ángeles Ahunchain, Sebastián
+  Rodríguez Marín
+author: "Grupo UMPE, Econometría Financiera"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Importamos librerías.
+```{r librerías, message=FALSE, warning=FALSE,echo=FALSE}
+library(AER)
+library(skimr)
+library(car)
+library(moments)
+library(lmtest)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(httr)
+tinytex::install_tinytex(force=TRUE)
+```
+### Importamos los datos de Github - Para esto Publicamos en perfil público de Github creando previamente el repositorio.
+```{r}
+datos<-tibble(read.csv("https://raw.githubusercontent.com/sebastianrodriguezmarin/ecofin/main/datos_meli.csv",header=TRUE,sep=";"))
+```
+
+
+```{r}
+options(scipen = 990)
+```
+
+
+```{r datos,message=FALSE}
+
+data("datos")
+skim(datos)
+
+```
+> **Primer punto, identificar nuestros datos**:
+Para hacerlo, es importante plantearse las siguientes preguntas:
+¿Qué tipo de datos estamos utilizando?
+¿Se trata de una serie temporal?
+¿Es de corte transversal (cross section)?
+
+## Modelo 1: regresión lineal inicial.
+
+Primero estimaremos un modelo que explique el logaritmo del precio de venta a partir del logaritmo del de la superficie contruida, el número de dormitorios, baños y la antiguedad. 
+La estimación de MCO quedará guardada en reg1.
+
+```{r}
+###datos_not_na <- subset(datos, barrio == "Malvin" & tipo_inmueble == "Apartamentos", select = -c(operacion,direccion))
+#datos_not_na <- subset(datos, ap_ppiso != "", select = -c(operacion,direccion))
+
+```
+
+```{r}
+df <- select(datos, barrio, precio, dormitorios, banos, gym, sup_constru, garage, antiguedad, tipo_inmueble)
+
+```
+## Hallamos la media de antigüedad con el fin de sustituir los NA por su media #pues_women_rules
+
+```{r}
+##mean_antiguedad <- mean(df$antiguedad, na.rm = TRUE)
+```
+
+```{r}
+##df$antiguedad <- round(df$antiguedad %>%
+##                                  replace(is.na(.),mean_antiguedad), digits = 0)
+```
+
+```{r}
+df <- subset(datos, antiguedad != "")
+```
+
+```{r}
+df <- transform(
+  df,precio = as.numeric(as.factor(precio)))
+
+df <- transform(
+  df,sup_constru = as.numeric(as.factor(sup_constru)))
+```
+
+```{r}
+reg1 <- lm(log(precio) ~ log(sup_constru) + dormitorios + banos + gym + garage, data = df)
+```
+
+### Analizamos los resultados
+```{r}
+summary(reg1)
+```
+### Tenemos un R^2 ajustado de 68,46%, lo cual es bastante bueno. 
+
+
+### Interpretación de los resultados:  
+Estos resultados indican un R^2 razonablemente alto de 68,46% y test mayores a 2 para todos los coeficientes. El coeficiente **banos** indica que se espera que una se vende un 30% más alta por unidad de baños (1 baño más para igual casa implica 30% más de precio).
+
+Una vivienda con un un 10% más de superficie contruída, ceteris paribus, aumenta el precio de venta esperado en aproximadamente un 4.5%, mientras que se estima que un **dormitorio adicional disminuiría el precio en casi un 0.038%????**.
+
+#### Precio estimado de una vivienda 
+El log del precio de venta esperado de una casa con tres dormitorios, un baño, superficie contruída de 60 m2 y 20 años de antiguedad, sin gimnaio y con garage:
+
+ln(p) = 9.79 + 0.4535 log(sup_construida) - 0.038 × (dormitorios) + 0.29 (banos) - 0.0053 (años de antiguedad) + 0.0834 (gymyes) + 0.14 (garageyes).
+
+ln(p) = 9.79 + 0.4535 log(60m2) - 0.038 × (3d) + 0.29 (1b) - 0.0053 (20a) + 0.0834 (gym:no) + 0.14 (garageyes) = 11,787
+
+El precio estimado sería $$e^{(11,787)}=131.531$$.
+
+#### Precio estimado de un apartamento en el barrio Malvín. Aplicamos el subset para depurar los demás barrios y los tipos de inmueble que NO son apartamentos.
+```{r}
+datos_malvin <- subset(df, barrio == "Malvin" & tipo_inmueble == "Apartamentos")
+```
+### Hacemos la regresión lineal para barrio Malvín y Apartamentos.
+```{r}
+reg_malvin <- lm(log(precio) ~ log(sup_constru) + dormitorios + banos + gym + garage, data = datos_malvin)
+summary(reg_malvin)
+```
+```{r}
+#residuo_malvin <- reg_malvin$residuals
+#residuo <- ggplot(residuo_malvin, aes(x=residuo_malvin))
+#residuo + geom_histogram()
+```
+
+### Perdón, quiero ver Pocitos después lo borramos
+```{r}
+datos_pocitos <- subset(df, barrio == "Pocitos" & tipo_inmueble == "Apartamentos")
+```
+
+```{r}
+reg_pocitos <- lm(log(precio) ~ log(sup_constru) + dormitorios + banos + antiguedad + gym + garage, data = datos_pocitos)
+summary(reg_pocitos)
+```
+```{r}
+pl <- ggplot(datos_pocitos, aes(x=precio))+ geom_histogram(binwidth = 100000, boundary=0)
+###pl + geom_histogram()
+pl
+```
+
+```{r}
+pl2 <- pl + geom_histogram(binwidth = 0.1, col='black', fill='green', alpha=0.4)
+pl2
+```
