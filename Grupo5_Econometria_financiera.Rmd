@@ -1,0 +1,205 @@
+---
+title: "Trabajo Final, Estefanía Di Giovani, Andrea Rodríguez, Ángeles Ahunchain, Sebastián Rodríguez Marín"
+author: "Grupo 5 UMPE, Econometría Financiera"
+output: html_document
+---
+
+Queremos comprobar si un apartamento de similares características en dos barrios (Malvín y Pocitos) son publicados en Mercado libre a precios similares o no y en caso que haya una diferencia queremos saber si es significativa.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("knitr")
+#install.packages("rmarkdown")
+```
+
+```{r librerías, message=FALSE, warning=FALSE,echo=FALSE}
+library(AER)
+library(skimr)
+library(car)
+library(moments)
+library(lmtest)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(httr)
+library(PerformanceAnalytics)
+library(corrplot)
+library(rmarkdown)
+
+options(scipen = 990)
+#tinytex::install_tinytex(force=TRUE)
+```
+### Importamos los datos de Github - Para esto Publicamos en perfil público de Github creando previamente el repositorio.
+```{r}
+#datos<-tibble(read.csv("https://raw.githubusercontent.com/sebastianrodriguezmarin/ecofin/main/meli_v1.csv",header = TRUE,sep=";", fileEncoding = "latin1"))
+
+
+datos <- load(url("https://raw.githubusercontent.com/vgilaro/EcoFin/main/muestra_modelos_new.Rda"))
+view(datos)
+```
+### Exploración de datos para identificar posibles variables explicativas de la variable a explicar que es el precio.
+```{r}
+datos <- meli_modelo
+
+```
+
+````{r}
+#backward = step(datos, direction = "backward") 
+#summary(backward)
+````
+
+### Análisis exploratorio, vemos que las variables analizadas son muy inclinadas hacia el no, motivo por el cuál no las incluimos en el análisis como variables explicativas.
+```{r}
+table(datos$seguridad)
+table(datos$desayunador)
+table(datos$terraza)
+table(datos$patio)
+```
+### En el caso del garage vemos que está más repartido, motivo por el cuál decidimos incluirla como variable explicativa. Como tiene solo dos valores posibles en nuestra muestra, será una variable Dummie.
+```{r}
+table(datos$garage)
+table(datos$gym)
+```
+> **Primer punto, identificar nuestros datos**:
+Para hacerlo, es importante plantearse las siguientes preguntas:
+¿Qué tipo de datos estamos utilizando?
+¿Se trata de una serie temporal?
+¿Es de corte transversal (cross section)?
+
+>## Modelo 1: regresión lineal inicial.
+Primero estimaremos un modelo que explique el logaritmo del precio de venta a partir del logaritmo del de la superficie contruida, el número de dormitorios, baños y la antiguedad. 
+La estimación de MCO quedará guardada en reg1.
+
+```{r}
+df <- select(datos, barrio, precio, dormitorios, banos, gym, sup_constru, garage, antiguedad, tipo_inmueble)
+```
+
+## Hallamos la media de antigüedad con el fin de sustituir los NA por su media #pues_women_rules
+
+```{r}
+df <- subset(datos, antiguedad != "")
+```
+
+
+```{r}
+reg1 <- lm(log(precio) ~ log(sup_constru) + dormitorios + banos + gym + antiguedad  + garage, data = df)
+```
+
+### Analizamos los resultados
+```{r}
+summary(reg1)
+```
+### Tenemos un R^2 ajustado de 68,46%, lo cual es bastante bueno. 
+
+
+### Interpretación de los resultados:  
+Estos resultados indican un R^2 razonablemente alto de 68,46% y test mayores a 2 para todos los coeficientes. El coeficiente **banos** indica que se espera que una se vende un 28% más alta por unidad de baños (1 baño más para igual casa implica 28% más de precio).
+
+Una vivienda con un un 10% más de superficie contruída, ceteris paribus, aumenta el precio de venta esperado en aproximadamente un 4.9%, mientras que se estima que un **dormitorio adicional disminuiría el precio en casi un 2,4%, esto se debe a que a mismos m2 tener más dormitorios hace caer el precio. La antigüedad es otra variable que juega de forma negativa en el precio, ante un años más de antigüedad el precio baja un 5.8%.
+
+#### Precio estimado de una vivienda 
+ln(p) = 9.6537 + 0.4909 log(sup_constru) - 0.0238 × (dormitorios) + 0.2797 (banos) - 0.0058 (antiguedad) + 0.0834 (gymSI) + 0.1269 (garageSi).
+
+ln(p) = 9.6537 + 0.4909 log(60m2) - 0.0238 × (3d) + 0.2797 (1b) - 0.0058 (20a) + 0.0834 (gym:no) + 0.1269 (garageyes) = 11,8828
+El precio estimado sería $$e^{(11,8828)} = 144.755$$.
+
+
+> Ahora analizamos el residuo de reg1 mediante un test de Jarque Bera. Jarque bera descubrieron que bajo normalidad el estadístico JB se distribuye Chi-Cuadrado con 2 grados de libertad. En este caso, la consola del test de JB nos indica un número demasiado bajo, casi 0 (0.00000000000000022) < 5% entonces rechazamos normalidad.
+
+###Con p value del test de JB nos da menor a 5%, por lo que rechazamos la hipótesis nula, que en este caso significa rechazar normalidad. Esto tambien lo podemos observar en QQplot en donde en ambos extremos se observan datos que se alejan de la normal, outliers, rechazan tambien la hipótesis de normalidad.
+
+```{r}
+jarque.test(reg1$residuals)
+
+```
+## Agregamos un gráfico Cook's distance para estimar la influencia de la información en un punto, Toma tanto en cuenta el leverage como el residuo de cada observación. Es un a sumatoria de cuánto cambia la regresión cuando se remueve la observación en cuestión. 
+```{r}
+par(mforw = c(2,1))
+
+plot(reg1,4)
+plot(reg1,2)
+```
+
+
+> Analicemos ahora qué sucede si hacemos el mismo análisis pero puntualmente en este nos interesó filtrar por Tipo de vivienda APARTAMENTO y barrio MALVÍN.
+
+#### Precio estimado de un apartamento en el barrio Malvín. Aplicamos el subset para depurar los demás barrios y los tipos de inmueble que NO son apartamentos.
+```{r}
+datos_malvin <- subset(df, barrio == "Malvin" & tipo_inmueble == "Apartamentos")
+```
+### Hacemos la regresión lineal para barrio Malvín y Apartamentos.
+```{r}
+reg_malvin <- lm(log(precio) ~ log(sup_constru) + dormitorios + banos + gym + antiguedad + garage, data = datos_malvin)
+summary(reg_malvin)
+```
+###Procedemos a aplicar la misma regresión, pero para datos del barrio Malvin. Estos resultados indican un R^2 razonablemente alto de 79,39% y test t mayores a 2 para todos los coeficientes, por lo que todas las variables del modelo son significativas, con un margen de confianza del 95%. Dormitorios esta al limite, si se pasa a un margen de confianza del 96% ya deja de ser significativa. El modelo en si es significativo ya que la p-value de F es menor al 5%, permitiendo rechazar la hipótesis de que los coeficientes son cero. A diferencia de la regresión inicial, ahora la variable dormitorios tiene coeficiente positivo.
+
+
+##Cada cuarto adicional el precio aumenta un 1.2%.  La antigüedad continua con un impacto negativo, cada año adicional el precio baja 0.2%.
+
+###La superficie construida es la variable mas significativa, una vivienda con un un 10% más de superficie contruída, ceteris paribus, aumenta el precio de venta esperado en aproximadamente un 5.8%.
+
+#### Precio estimado de una vivienda  Aplicamos el mismo ejemplo anterior para el barrio Malvin, log del precio de venta esperado de una casa en Malvin con tres dormitorios, un baño, superficie contruída de 60 m2 y 20 años de antiguedad, sin gimnasio y con garage: ln(p) = 9.3146 + 0.5859 log(60m2) + 0.0126 × (3d) + 0.2530 (1b) - 0.0020 (20a) + 0.0463 (gym:no) + 0.0833 (garageyes) = 12,0475
+
+El precio estimado sería $$e^{(12,0475)}=170.672$$.
+
+
+
+### Ahora queremos ver el resultado del análisis para un apartamento pero en el barrio POCITOS.
+
+```{r}
+datos_pocitos <- subset(df, barrio == "Pocitos" & tipo_inmueble == "Apartamentos")
+```
+
+```{r}
+reg_pocitos <- lm(log(precio) ~ log(sup_constru) + dormitorios + banos + gym + antiguedad + garage, data = datos_pocitos)
+summary(reg_pocitos)
+```
+> El R2 del subset para Pocitos es 7% más alto que para el caso de Malvín, esto nos indica que nuestro modelo, con las variables mencionadas anteriormente explica mejor el precio de un apartamento en Malvín de lo que lo explica en Pocitos.
+
+###Si bien nos llama la atención el valor negativo del coeficiente gym, dado que no utilizaremos la variable no nos detenemos a analizarla en profundidad.
+
+## Graficamos en un histograma los precios de pocitos en Bines de 10.000 USD.
+```{r}
+pl <- ggplot(datos_pocitos, aes(x=precio))+ geom_histogram(binwidth = 10000, boundary=50)
+###pl + geom_histogram()
+pl
+```
+
+```{r}
+anova(reg1)
+```
+
+#ln(p) = 9.1079 + 0.7031 log(60m2) - 0.0098 × (3d) + 0.1190 (1b) - 0.0019 (20a) - 0.0350 (gym:no) + 0.0789 (garageyes) = 12.1171
+
+El precio estimado sería $$e^{(12,1171)}=182.980$$.
+
+### Concluimos que para igual cantidad de dormitorios, superficie construída, antigüedad desde construído, y teniendo el apartamento garage, Pocitos es más caro que Malvín.
+
+```{r}
+
+ggplot(data = datos_malvin, aes(x = precio, y = sup_constru)) + 
+  geom_point(colour = "red4") +
+  ggtitle("Diagrama de dispersión") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+
+par(mfrow = c(1,2))
+ggplot(datos_pocitos, aes(x=precio))+ geom_histogram(binwidth = 5000, boundary=500)
+ggplot(datos_malvin, aes(x=precio))+ geom_histogram(binwidth = 5000, boundary=500)
+
+```
+
+###Heterocedasticidad - Analizamos por ej para el caso de Malvín. Para hacer un análisis más exhaustivo deberíamos continuar con un Test de White en el cual validaríamos o no la hipótesis de homocedasticidad. 
+
+```{r plot_heterocedasticidad}
+plot(reg_malvin,1)
+```
